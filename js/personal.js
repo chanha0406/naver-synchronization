@@ -1,3 +1,11 @@
+function translate(text) {
+	const l10n = window.OC && window.OC.L10N
+	if (l10n && typeof l10n.translate === 'function') {
+		return l10n.translate('naversynchronization', text)
+	}
+	return text
+}
+
 function requestToken() {
 	if (window.OC && window.OC.requestToken) {
 		return window.OC.requestToken
@@ -48,24 +56,24 @@ function init() {
 
 	function formatTime(stamp) {
 		if (!stamp) {
-			return '아직 동기화하지 않음'
+			return translate('Not synced yet')
 		}
-		return '마지막 동기화 ' + new Date(stamp * 1000).toLocaleString()
+		return translate('Last sync') + ' ' + new Date(stamp * 1000).toLocaleString()
 	}
 
 	function render(next) {
 		idInput.value = next.naverId || ''
 		passwordInput.value = ''
-		passwordInput.placeholder = next.passwordSet ? '저장되어 있습니다. 바꿀 때만 입력' : ''
+		passwordInput.placeholder = next.passwordSet ? translate('Saved. Enter a new one only to change it') : ''
 		passwordHint.textContent = next.passwordSet
-			? '암호가 저장되어 있습니다. 칸이 비어 있는 것은 암호를 다시 보여 주지 않기 때문이고, 바꿀 때만 새로 입력하면 됩니다.'
-			: '2단계 인증이면 애플리케이션 비밀번호를 입력하세요.'
+			? translate('A password is saved. The field is empty because the password is not shown again. Enter a new one only when you want to change it.')
+			: translate('If you use two-step verification, enter an application password.')
 		calendarList.replaceChildren()
 		const calendars = next.calendars || []
 		if (calendars.length === 0) {
 			const empty = document.createElement('li')
 			empty.className = 'empty'
-			empty.textContent = '아직 가져온 캘린더가 없습니다.'
+			empty.textContent = translate('No calendars have been imported yet.')
 			calendarList.appendChild(empty)
 			return
 		}
@@ -89,11 +97,11 @@ function init() {
 			}
 			const name = document.createElement('span')
 			name.className = 'name'
-			name.textContent = calendar.name || '네이버 캘린더'
+			name.textContent = calendar.name || translate('Naver calendar')
 			main.appendChild(name)
 			const badge = document.createElement('span')
 			badge.className = 'badge'
-			badge.textContent = '읽기 전용'
+			badge.textContent = translate('Read only')
 			main.appendChild(badge)
 			label.appendChild(main)
 			item.appendChild(label)
@@ -138,7 +146,7 @@ function init() {
 			})
 			const payload = await response.json()
 			if (!response.ok) {
-				throw new Error(payload.error || '요청에 실패했습니다.')
+				throw new Error(payload.error || translate('Request failed.'))
 			}
 			if (payload.calendars) {
 				render(payload)
@@ -148,7 +156,7 @@ function init() {
 			}
 			return payload
 		} catch (error) {
-			setStatus(error.message || '요청에 실패했습니다.', true)
+			setStatus(error.message || translate('Request failed.'), true)
 			return null
 		} finally {
 			setBusy(false)

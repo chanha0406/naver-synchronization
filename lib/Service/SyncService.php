@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Service;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\DAV\CalDAV\CalDavBackend;
 use OCA\NaverSynchronization\AppInfo\Application;
 use OCA\NaverSynchronization\Db\SyncedCalendar;
@@ -86,7 +88,7 @@ class SyncService {
 				continue;
 			}
 			$row->setEnabled(0);
-			$row->setLastError('네이버 계정에서 이 캘린더를 찾지 못했습니다.');
+			$row->setLastError(T::t('This calendar was not found in the Naver account.'));
 			$this->calendars->update($row);
 		}
 
@@ -119,11 +121,11 @@ class SyncService {
 			try {
 				$this->syncUser($userId);
 			} catch (LockedException) {
-				$this->logger->info('네이버 캘린더 동기화가 이미 진행 중입니다.', [
+				$this->logger->info(T::t('Naver calendar sync is already running.'), [
 					'app' => Application::APP_ID,
 				]);
 			} catch (\Throwable $e) {
-				$this->logger->error('네이버 캘린더 동기화 실패: ' . $e->getMessage(), [
+				$this->logger->error(T::t('Naver calendar sync failed: %s', [$e->getMessage()]), [
 					'app' => Application::APP_ID,
 					'exception' => $e,
 				]);
@@ -135,12 +137,17 @@ class SyncService {
 	 * @return array{naverId: string, passwordSet: bool, calendars: list<array<string, mixed>>, message: string}
 	 */
 	public function syncUser(string $userId, bool $allowMassDelete = false): array {
+		T::forUser($userId);
+		try {
 		$path = 'naversynchronization/' . $userId;
 		$this->locking->acquireLock($path, ILockingProvider::LOCK_EXCLUSIVE);
 		try {
 			return $this->syncUserLocked($userId, $allowMassDelete);
 		} finally {
 			$this->locking->releaseLock($path, ILockingProvider::LOCK_EXCLUSIVE);
+		}
+			} finally {
+			T::forUser(null);
 		}
 	}
 
@@ -157,7 +164,7 @@ class SyncService {
 		));
 		if ($enabled === []) {
 			$state = $this->state($userId);
-			$state['message'] = '동기화할 캘린더가 없습니다. 캘린더를 고른 뒤 저장하세요.';
+			$state['message'] = T::t('No calendar is selected. Choose calendars and save.');
 			return $state;
 		}
 
@@ -172,7 +179,7 @@ class SyncService {
 				$this->calendars->update($mapping);
 				$parts[] = $name . ': ' . $result['summary'];
 			} catch (\Throwable $e) {
-				$this->logger->error('네이버 캘린더를 가져오지 못했습니다: ' . $e->getMessage(), [
+				$this->logger->error(T::t('Could not import the Naver calendar: %s', [$e->getMessage()]), [
 					'app' => Application::APP_ID,
 					'exception' => $e,
 				]);
@@ -255,7 +262,7 @@ class SyncService {
 				$writtenEtag = $this->writeObject($ncCalendarId, $localUri, $ics);
 			} catch (\Throwable $e) {
 				$failed++;
-				$this->logger->warning('네이버 일정 하나를 건너뛰었습니다: ' . $e->getMessage(), [
+				$this->logger->warning(T::t('Skipped one Naver event: %s', [$e->getMessage()]), [
 					'app' => Application::APP_ID,
 				]);
 				continue;
@@ -309,7 +316,7 @@ class SyncService {
 		$deletionCount = count($pending);
 		if ($deletionCount > 0 && !$allowMassDelete && $this->tooManyDeletions($deletionCount, max(count($byHash), count($local)))) {
 			$held = $deletionCount;
-			$error = '한 번에 지울 항목이 ' . $deletionCount . '건이라 삭제를 보류했습니다. 확인 후 occ naversynchronization:sync --allow-mass-delete ' . $userId . ' 로 진행하세요.';
+			$error = T::t('Refused to delete %1$s items at once. Check them, then continue with occ naversynchronization:sync --allow-mass-delete %2$s.', [$deletionCount, $userId]);
 		} else {
 			foreach ($pending as $uri => $row) {
 				if (!str_starts_with((string)$uri, 'row:') && isset($local[$uri])) {
@@ -322,12 +329,12 @@ class SyncService {
 			}
 		}
 
-		$summary = '추가 ' . $added . ', 갱신 ' . $updated . ', 되돌림 ' . $reverted . ', 되살림 ' . $restored . ', 삭제 ' . $deleted . ', 유지 ' . $kept;
+		$summary = T::t('Added %1$s, updated %2$s, reverted %3$s, restored %4$s, deleted %5$s, unchanged %6$s', [$added, $updated, $reverted, $restored, $deleted, $kept]);
 		if ($held > 0) {
-			$summary .= ', 삭제 보류 ' . $held;
+			$summary .= T::t(', deletion held %s', [$held]);
 		}
 		if ($failed > 0) {
-			$summary .= ', 실패 ' . $failed;
+			$summary .= T::t(', failed %s', [$failed]);
 		}
 		return ['summary' => $summary, 'error' => $error];
 	}
@@ -431,7 +438,7 @@ class SyncService {
 			}
 		}
 		if ($name === '') {
-			$name = '네이버 캘린더';
+			$name = T::t('Naver calendar');
 		}
 		$suffix = ' (Naver Calendar)';
 		return mb_substr($name, 0, 255 - mb_strlen($suffix)) . $suffix;
@@ -439,7 +446,7 @@ class SyncService {
 
 	private function normalizeIcs(string $ics, string $localUri): string {
 		if (strlen($ics) > self::MAX_OBJECT_BYTES) {
-			throw new \RuntimeException('일정이 너무 큽니다.');
+			throw new \RuntimeException(T::t('The event is too large.'));
 		}
 		$vobject = Reader::read($ics, Reader::OPTION_FORGIVING);
 		if (!$vobject instanceof VCalendar) {
@@ -461,7 +468,7 @@ class SyncService {
 			}
 		}
 		if (!$hasComponent) {
-			throw new \RuntimeException('일정 구성요소가 없습니다.');
+			throw new \RuntimeException(T::t('The event has no calendar component.'));
 		}
 		return $vobject->serialize();
 	}

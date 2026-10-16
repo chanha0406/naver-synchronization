@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Controller;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\NaverSynchronization\AppInfo\Application;
 use OCA\NaverSynchronization\Exception\AuthException;
 use OCA\NaverSynchronization\Service\AccountService;
@@ -31,7 +33,7 @@ class SyncController extends Controller {
 	#[NoAdminRequired]
 	public function saveAccount(): JSONResponse {
 		if ($this->userId === null) {
-			return $this->error('로그인이 필요합니다.', Http::STATUS_UNAUTHORIZED);
+			return $this->error(T::t('You need to be logged in.'), Http::STATUS_UNAUTHORIZED);
 		}
 		try {
 			$this->accounts->save(
@@ -47,14 +49,14 @@ class SyncController extends Controller {
 		} catch (\Throwable $e) {
 			return $this->loggedError($e);
 		}
-		$state['message'] = '계정을 저장하고 캘린더 목록을 가져왔습니다. 가져올 캘린더를 고른 뒤 저장하세요.';
+		$state['message'] = T::t('Saved the account and loaded the calendar list. Choose the calendars to import, then save.');
 		return new JSONResponse($state);
 	}
 
 	#[NoAdminRequired]
 	public function getCalendars(int $refresh = 0): JSONResponse {
 		if ($this->userId === null) {
-			return $this->error('로그인이 필요합니다.', Http::STATUS_UNAUTHORIZED);
+			return $this->error(T::t('You need to be logged in.'), Http::STATUS_UNAUTHORIZED);
 		}
 		try {
 			$state = $refresh === 1
@@ -71,27 +73,27 @@ class SyncController extends Controller {
 	#[NoAdminRequired]
 	public function saveSelection(): JSONResponse {
 		if ($this->userId === null) {
-			return $this->error('로그인이 필요합니다.', Http::STATUS_UNAUTHORIZED);
+			return $this->error(T::t('You need to be logged in.'), Http::STATUS_UNAUTHORIZED);
 		}
 		$calendars = $this->request->getParam('calendars');
 		if (!is_array($calendars)) {
-			return $this->error('캘린더 목록이 없습니다.', Http::STATUS_BAD_REQUEST);
+			return $this->error(T::t('There is no calendar list.'), Http::STATUS_BAD_REQUEST);
 		}
 		$this->sync->saveSelection($this->userId, $calendars);
 		$state = $this->sync->state($this->userId);
-		$state['message'] = '선택한 캘린더를 저장했습니다.';
+		$state['message'] = T::t('Saved the selected calendars.');
 		return new JSONResponse($state);
 	}
 
 	#[NoAdminRequired]
 	public function syncNow(): JSONResponse {
 		if ($this->userId === null) {
-			return $this->error('로그인이 필요합니다.', Http::STATUS_UNAUTHORIZED);
+			return $this->error(T::t('You need to be logged in.'), Http::STATUS_UNAUTHORIZED);
 		}
 		try {
 			return new JSONResponse($this->sync->syncUser($this->userId));
 		} catch (LockedException) {
-			return $this->error('이미 동기화 중입니다.', Http::STATUS_CONFLICT);
+			return $this->error(T::t('A sync is already running.'), Http::STATUS_CONFLICT);
 		} catch (AuthException $e) {
 			return $this->error($e->getMessage(), Http::STATUS_UNAUTHORIZED);
 		} catch (\Throwable $e) {
@@ -104,7 +106,7 @@ class SyncController extends Controller {
 			'app' => Application::APP_ID,
 			'exception' => $e,
 		]);
-		$message = $e->getMessage() !== '' ? $e->getMessage() : '네이버 캘린더에 연결하지 못했습니다.';
+		$message = $e->getMessage() !== '' ? $e->getMessage() : T::t('Could not connect to Naver Calendar.');
 		return $this->error($message, Http::STATUS_BAD_GATEWAY);
 	}
 

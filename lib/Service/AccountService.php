@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Service;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\NaverSynchronization\AppInfo\Application;
 use OCP\Config\IUserConfig;
 use OCP\Security\ICrypto;
@@ -18,10 +20,10 @@ class AccountService {
 	public function save(string $userId, string $naverId, string $password): void {
 		$naverId = $this->normalizeId($naverId);
 		if ($naverId === '') {
-			throw new \InvalidArgumentException('네이버 아이디를 입력하세요.');
+			throw new \InvalidArgumentException(T::t('Enter a Naver id.'));
 		}
 		if (str_contains($naverId, ':') || preg_match('/^[A-Za-z0-9._-]+$/', $naverId) !== 1) {
-			throw new \InvalidArgumentException('네이버 아이디 형식이 올바르지 않습니다. @naver.com 은 빼고 입력하세요.');
+			throw new \InvalidArgumentException(T::t('The Naver id format is invalid. Leave off @naver.com.'));
 		}
 
 		$this->userConfig->setValueString($userId, Application::APP_ID, 'naver_id', $naverId, lazy: true);
@@ -30,7 +32,7 @@ class AccountService {
 			return;
 		}
 		if ($this->getPassword($userId) === '') {
-			throw new \InvalidArgumentException('암호를 입력하세요. 2단계 인증이면 애플리케이션 비밀번호를 사용합니다.');
+			throw new \InvalidArgumentException(T::t('Enter a password. If you use two-step verification, use an application password.'));
 		}
 	}
 
@@ -49,7 +51,7 @@ class AccountService {
 		$naverId = $this->getNaverId($userId);
 		$password = $this->getPassword($userId);
 		if ($naverId === '' || $password === '') {
-			throw new \RuntimeException('네이버 계정이 저장되어 있지 않습니다.');
+			throw new \RuntimeException(T::t('No Naver account is saved.'));
 		}
 		return [$naverId, $password];
 	}

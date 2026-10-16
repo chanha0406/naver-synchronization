@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Settings;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\NaverSynchronization\AppInfo\Application;
 use OCP\IURLGenerator;
 use OCP\Settings\IIconSection;
@@ -19,7 +21,7 @@ class PersonalSection implements IIconSection {
 	}
 
 	public function getName(): string {
-		return '네이버 캘린더 동기화';
+		return T::t('Naver calendar sync');
 	}
 
 	public function getPriority(): int {

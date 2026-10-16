@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Service;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\NaverSynchronization\AppInfo\Application;
 use OCA\NaverSynchronization\Exception\AuthException;
 use Sabre\DAV\Client;
@@ -57,7 +59,7 @@ XML;
 			'/principals/' . $id . '/',
 			'/caldav/' . $id . '/user/',
 		];
-		$lastError = '캘린더 주소를 찾지 못했습니다.';
+		$lastError = T::t('Could not find the calendar URL.');
 		foreach ($paths as $path) {
 			try {
 				$responses = $this->propfind($path, 0);
@@ -93,7 +95,7 @@ XML;
 						'href' => $href,
 						'name' => $child['displayName'] !== null && $child['displayName'] !== ''
 							? $child['displayName']
-							: '네이버 캘린더',
+							: T::t('Naver calendar'),
 						'color' => $this->normalizeColor($child['color']),
 					];
 				}
@@ -101,7 +103,7 @@ XML;
 			if ($calendars !== []) {
 				return $this->uniqueCalendars($calendars);
 			}
-			$lastError = '계정은 확인됐지만 가져올 캘린더가 없습니다.';
+			$lastError = T::t('The account is valid, but there is no calendar to import.');
 		}
 
 		throw new \RuntimeException($lastError);
@@ -113,7 +115,7 @@ XML;
 	public function listObjects(string $calendarHref): array {
 		$responses = $this->propfind($this->pathOf($calendarHref), 1);
 		if ($responses === []) {
-			throw new \RuntimeException('일정 목록 응답이 비어 있습니다.');
+			throw new \RuntimeException(T::t('The event list response was empty.'));
 		}
 
 		$objects = [];
@@ -190,15 +192,15 @@ XML;
 		try {
 			$response = $this->client()->request($method, $path, $body, $headers);
 		} catch (ClientException $e) {
-			throw new \RuntimeException('네이버 캘린더 서버에 연결하지 못했습니다.', 0, $e);
+			throw new \RuntimeException(T::t('Could not connect to the Naver calendar server.'), 0, $e);
 		}
 
 		$code = $response['statusCode'];
 		if ($code === 401 || $code === 403) {
-			throw new AuthException('아이디 또는 암호가 올바르지 않습니다. 2단계 인증을 쓰면 애플리케이션 비밀번호를 입력하세요.');
+			throw new AuthException(T::t('The id or password is wrong. If you use two-step verification, enter an application password.'));
 		}
 		if ($code < 200 || $code >= 300) {
-			throw new \RuntimeException('네이버 CalDAV가 HTTP ' . $code . ' 을 반환했습니다.');
+			throw new \RuntimeException(T::t('Naver CalDAV returned HTTP %s.', [$code]));
 		}
 		return $response;
 	}

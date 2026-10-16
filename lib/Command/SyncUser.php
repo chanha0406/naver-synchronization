@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OCA\NaverSynchronization\Command;
 
+use OCA\NaverSynchronization\L10n\T;
+
 use OCA\NaverSynchronization\Service\SyncService;
 use OCP\IUserManager;
 use Symfony\Component\Console\Command\Command;
@@ -22,15 +24,15 @@ class SyncUser extends Command {
 
 	protected function configure(): void {
 		$this->setName('naversynchronization:sync')
-			->setDescription('저장한 네이버 캘린더를 Nextcloud로 동기화합니다')
-			->addArgument('user', InputArgument::REQUIRED, 'Nextcloud 사용자 ID')
-			->addOption('allow-mass-delete', null, InputOption::VALUE_NONE, '한 번에 많은 일정을 지워도 진행합니다');
+			->setDescription(T::t('Sync the saved Naver calendars into Nextcloud'))
+			->addArgument('user', InputArgument::REQUIRED, T::t('Nextcloud user id'))
+			->addOption('allow-mass-delete', null, InputOption::VALUE_NONE, T::t('Continue even if many events would be deleted'));
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int {
 		$userId = (string)$input->getArgument('user');
 		if ($this->users->get($userId) === null) {
-			$output->writeln('<error>없는 사용자입니다.</error>');
+			$output->writeln('<error>' . T::t('Unknown user.') . '</error>');
 			return 1;
 		}
 		try {
@@ -39,7 +41,7 @@ class SyncUser extends Command {
 			$output->writeln('<error>' . $e->getMessage() . '</error>');
 			return 1;
 		}
-		$output->writeln((string)($result['message'] ?? '완료'));
+		$output->writeln((string)($result['message'] ?? T::t('Done')));
 		return 0;
 	}
 }

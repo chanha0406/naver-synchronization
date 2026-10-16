@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<info xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://apps.nextcloud.com/schema/apps/info.xsd">
+	<id>naversynchronization</id>
+	<name>Naver Synchronization</name>
+	<summary>Import Naver Calendar into Nextcloud over CalDAV.</summary>
+	<description><![CDATA[Imports events from Naver Calendar (caldav.calendar.naver.com) into Nextcloud calendars, one way. Sign in with a Naver ID and password, and choose which calendars to import when the account has more than one. Local edits are reverted on the next sync, and events that exist only in Nextcloud are removed.]]></description>
+	<version>1.0.0</version>
+	<licence>agpl</licence>
+	<author mail="chanha0406@gmail.com" homepage="https://github.com/chanha0406/naver-synchronization">YouCha</author>
+	<namespace>NaverSynchronization</namespace>
+	<category>integration</category>
+	<website>https://github.com/chanha0406/naver-synchronization</website>
+	<bugs>https://github.com/chanha0406/naver-synchronization/issues</bugs>
+	<dependencies>
+		<nextcloud min-version="32" max-version="35"/>
+	</dependencies>
+	<background-jobs>
+		<job>OCA\NaverSynchronization\BackgroundJob\SyncJob</job>
+	</background-jobs>
+	<commands>
+		<command>OCA\NaverSynchronization\Command\SyncUser</command>
+	</commands>
+	<settings>
+		<personal>OCA\NaverSynchronization\Settings\Personal</personal>
+		<personal-section>OCA\NaverSynchronization\Settings\PersonalSection</personal-section>
+	</settings>
+</info>

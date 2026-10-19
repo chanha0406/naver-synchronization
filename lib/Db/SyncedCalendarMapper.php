@@ -40,6 +40,16 @@ class SyncedCalendarMapper extends QBMapper {
 		return $rows[0] ?? null;
 	}
 
+	public function findForUser(string $userId, int $id): ?SyncedCalendar {
+		$qb = $this->db->getQueryBuilder();
+		$qb->select('*')
+			->from($this->getTableName())
+			->where($qb->expr()->eq('id', $qb->createNamedParameter($id, IQueryBuilder::PARAM_INT)))
+			->andWhere($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)));
+		$rows = $this->findEntities($qb);
+		return $rows[0] ?? null;
+	}
+
 	/**
 	 * @return list<string>
 	 */

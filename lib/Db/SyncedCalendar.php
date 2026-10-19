@@ -17,6 +17,10 @@ use OCP\AppFramework\Db\Entity;
  * @method string|null getDisplayName()
  * @method void setColor(?string $color)
  * @method string|null getColor()
+ * @method void setAppliedName(?string $appliedName)
+ * @method string|null getAppliedName()
+ * @method void setAppliedColor(?string $appliedColor)
+ * @method string|null getAppliedColor()
  * @method void setNcCalendarId(int $ncCalendarId)
  * @method int getNcCalendarId()
  * @method void setEnabled(int $enabled)
@@ -34,6 +38,8 @@ class SyncedCalendar extends Entity {
 	protected $hrefHash;
 	protected $displayName;
 	protected $color;
+	protected $appliedName;
+	protected $appliedColor;
 	protected $ncCalendarId;
 	protected $enabled;
 	protected $lastSync;

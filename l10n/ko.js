@@ -56,6 +56,14 @@ OC.L10N.register(
 	"Read only": "읽기 전용",
 	"Request failed.": "요청에 실패했습니다.",
 	"The server is caldav.calendar.naver.com. The id is your Naver id. If you use two-step verification, enter an": "서버는 caldav.calendar.naver.com 입니다. 아이디는 네이버 아이디이고, 2단계 인증을 쓰면",
-	". After saving, import runs on each server cron, or when you press Sync now.": ". 저장한 뒤에는 서버 cron이 돌 때마다, 또는 지금 동기화로 가져옵니다."
+	". After saving, import runs on each server cron, or when you press Sync now.": ". 저장한 뒤에는 서버 cron이 돌 때마다, 또는 지금 동기화로 가져옵니다.",
+	"Calendar names and colors follow Naver only while Nextcloud still has the last value this app wrote. After you change them in Nextcloud they stay as they are. Use Match Naver name or Match Naver color on that calendar to copy Naver's value again. Event contents are still replaced from Naver on each sync.": "캘린더 이름과 색은, Nextcloud에 이 앱이 마지막으로 넣은 값이 그대로일 때만 네이버를 따릅니다. Nextcloud에서 바꾼 뒤에는 그 값이 유지됩니다. 다시 네이버와 맞추려면 해당 캘린더의 네이버 이름 맞추기 또는 네이버 색 맞추기를 누르세요. 일정 내용은 이전과 같이 동기화마다 네이버 기준으로 맞춥니다.",
+	"Match Naver name": "네이버 이름 맞추기",
+	"Match Naver color": "네이버 색 맞추기",
+	"Matched to Naver.": "네이버 값으로 맞췄습니다.",
+	"Choose a name or a color to match.": "맞출 이름 또는 색을 고르세요.",
+	"Unknown calendar.": "없는 캘린더입니다.",
+	"This calendar is not linked to Nextcloud yet.": "아직 Nextcloud 캘린더에 연결되지 않았습니다."
 },
-"nplurals=1; plural=0;");
+	"nplurals=1; plural=0;"
+);

@@ -13,6 +13,9 @@ $passwordSet = !empty($_['state']['passwordSet']);
 		<?php p($l->t('The server is caldav.calendar.naver.com. The id is your Naver id. If you use two-step verification, enter an')); ?>
 		<a href="https://help.naver.com/service/5640/contents/8584" target="_blank" rel="noreferrer"><?php p($l->t('application password')); ?></a><?php p($l->t('. After saving, import runs on each server cron, or when you press Sync now.')); ?>
 	</p>
+	<p class="lead">
+		<?php p($l->t('Calendar names and colors follow Naver only while Nextcloud still has the last value this app wrote. After you change them in Nextcloud they stay as they are. Use Match Naver name or Match Naver color on that calendar to copy Naver\'s value again. Event contents are still replaced from Naver on each sync.')); ?>
+	</p>
 
 	<section class="block">
 		<h3><?php p($l->t('Account')); ?></h3>

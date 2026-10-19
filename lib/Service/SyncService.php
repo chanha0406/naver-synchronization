@@ -81,6 +81,7 @@ class SyncService {
 			} else {
 				$this->calendars->update($row);
 			}
+			$this->syncAppearanceFor($row);
 		}
 
 		foreach ($byHash as $hash => $row) {
@@ -114,6 +115,33 @@ class SyncService {
 			$row->setEnabled($wanted[$id] ? 1 : 0);
 			$this->calendars->update($row);
 		}
+	}
+
+	/**
+	 * Overwrites the Nextcloud calendar title and/or color with the stored Naver values.
+	 *
+	 * @return array{naverId: string, passwordSet: bool, calendars: list<array<string, mixed>>, message: string}
+	 */
+	public function matchNaverAppearance(string $userId, int $calendarId, bool $name, bool $color): array {
+		if (!$name && !$color) {
+			throw new \InvalidArgumentException(T::t('Choose a name or a color to match.'));
+		}
+		$row = $this->calendars->findForUser($userId, $calendarId);
+		if ($row === null) {
+			throw new \InvalidArgumentException(T::t('Unknown calendar.'));
+		}
+		$ncId = (int)$row->getNcCalendarId();
+		if ($ncId <= 0) {
+			throw new \RuntimeException(T::t('This calendar is not linked to Nextcloud yet.'));
+		}
+		$calendar = $this->caldav->getCalendarById($ncId);
+		if (!is_array($calendar) || $this->isInTrash($calendar)) {
+			throw new \RuntimeException(T::t('This calendar is not linked to Nextcloud yet.'));
+		}
+		$this->syncAppearance($row, $calendar, $name, $color);
+		$state = $this->state($userId);
+		$state['message'] = T::t('Matched to Naver.');
+		return $state;
 	}
 
 	public function syncAll(): void {
@@ -371,25 +399,25 @@ class SyncService {
 
 	private function ensureCalendar(string $userId, SyncedCalendar $mapping): int {
 		$principal = 'principals/users/' . $userId;
-		$displayName = $this->localName((string)$mapping->getDisplayName());
-		$color = $mapping->getColor();
+		$desiredName = $this->localName((string)$mapping->getDisplayName());
+		$desiredColor = self::normalizeColor($mapping->getColor());
 		$existingId = (int)$mapping->getNcCalendarId();
 		if ($existingId > 0) {
 			$calendar = $this->caldav->getCalendarById($existingId);
 			if (is_array($calendar)
 				&& !$this->isInTrash($calendar)
 				&& ($calendar['principaluri'] ?? '') === $principal) {
-				$this->updateCalendarMeta($existingId, $displayName, is_string($color) ? $color : null, $calendar);
+				$this->syncAppearance($mapping, $calendar, false, false);
 				return $existingId;
 			}
 		}
 
 		$params = [
-			'{DAV:}displayname' => $displayName,
+			'{DAV:}displayname' => $desiredName,
 			'components' => 'VEVENT',
 		];
-		if (is_string($color) && $color !== '') {
-			$params['{http://apple.com/ns/ical/}calendar-color'] = $color;
+		if ($desiredColor !== '') {
+			$params['{http://apple.com/ns/ical/}calendar-color'] = $desiredColor;
 		}
 		$uri = 'naver-import-' . substr((string)$mapping->getHrefHash(), 0, 32);
 		try {
@@ -399,28 +427,114 @@ class SyncService {
 		}
 		$this->objects->deleteByCalendar((int)$mapping->getId());
 		$mapping->setNcCalendarId($created);
+		$mapping->setAppliedName($desiredName);
+		$mapping->setAppliedColor($desiredColor !== '' ? $desiredColor : null);
 		$this->calendars->update($mapping);
 		return $created;
 	}
 
-	/**
-	 * @param array<string, mixed> $calendar
-	 */
-	private function updateCalendarMeta(int $calendarId, string $displayName, ?string $color, array $calendar): void {
-		$mutations = [];
-		if (($calendar['{DAV:}displayname'] ?? '') !== $displayName) {
-			$mutations['{DAV:}displayname'] = $displayName;
-		}
-		$currentColor = strtoupper(ltrim((string)($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? '')));
-		if ($color !== null && $color !== '' && !str_starts_with($currentColor, $color)) {
-			$mutations['{http://apple.com/ns/ical/}calendar-color'] = $color;
-		}
-		if ($mutations === []) {
+	private function syncAppearanceFor(SyncedCalendar $mapping): void {
+		$ncId = (int)$mapping->getNcCalendarId();
+		if ($ncId <= 0) {
 			return;
 		}
-		$patch = new PropPatch($mutations);
-		$this->caldav->updateCalendar($calendarId, $patch);
-		$patch->commit();
+		$calendar = $this->caldav->getCalendarById($ncId);
+		if (!is_array($calendar) || $this->isInTrash($calendar)) {
+			return;
+		}
+		$this->syncAppearance($mapping, $calendar, false, false);
+	}
+
+	/**
+	 * Writes Naver name/color onto the Nextcloud calendar when the local
+	 * calendar still matches the last value we applied, or when forced.
+	 *
+	 * @param array<string, mixed> $calendar
+	 */
+	private function syncAppearance(SyncedCalendar $mapping, array $calendar, bool $forceName, bool $forceColor): void {
+		$ncId = (int)$calendar['id'];
+		$ncName = (string)($calendar['{DAV:}displayname'] ?? '');
+		$ncColor = self::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null);
+		$seeded = false;
+		if ($mapping->getAppliedName() === null) {
+			$mapping->setAppliedName($ncName !== '' ? $ncName : $this->localName((string)$mapping->getDisplayName()));
+			$seeded = true;
+		}
+		if ($mapping->getAppliedColor() === null) {
+			$seedColor = $ncColor !== '' ? $ncColor : self::normalizeColor($mapping->getColor());
+			$mapping->setAppliedColor($seedColor !== '' ? $seedColor : null);
+			$seeded = true;
+		}
+		if ($seeded) {
+			$this->calendars->update($mapping);
+		}
+
+		$desiredName = $this->localName((string)$mapping->getDisplayName());
+		$desiredColor = self::normalizeColor($mapping->getColor());
+		$patch = [];
+		$markers = false;
+		$appliedName = (string)$mapping->getAppliedName();
+		$appliedColor = self::normalizeColor($mapping->getAppliedColor());
+
+		if ($forceName || ($ncName === $appliedName && $ncName !== $desiredName)) {
+			$patch['{DAV:}displayname'] = $desiredName;
+			$mapping->setAppliedName($desiredName);
+			$markers = true;
+		} elseif ($ncName === $desiredName && $appliedName !== $desiredName) {
+			$mapping->setAppliedName($desiredName);
+			$markers = true;
+		}
+		if ($desiredColor !== '' && ($forceColor || ($ncColor === $appliedColor && $ncColor !== $desiredColor))) {
+			$patch['{http://apple.com/ns/ical/}calendar-color'] = $desiredColor;
+			$mapping->setAppliedColor($desiredColor);
+			$markers = true;
+		} elseif ($desiredColor !== '' && $ncColor === $desiredColor && $appliedColor !== $desiredColor) {
+			$mapping->setAppliedColor($desiredColor);
+			$markers = true;
+		}
+
+		if ($patch !== []) {
+			$propPatch = new PropPatch($patch);
+			$this->caldav->updateCalendar($ncId, $propPatch);
+			$propPatch->commit();
+			$this->calendars->update($mapping);
+		} elseif ($markers) {
+			$this->calendars->update($mapping);
+		}
+	}
+
+	/**
+	 * @return array{nameCustomized: bool, colorCustomized: bool}
+	 */
+	private function appearanceFlags(SyncedCalendar $mapping): array {
+		$desiredName = $this->localName((string)$mapping->getDisplayName());
+		$desiredColor = self::normalizeColor($mapping->getColor());
+		$ncId = (int)$mapping->getNcCalendarId();
+		if ($ncId <= 0) {
+			return ['nameCustomized' => false, 'colorCustomized' => false];
+		}
+		$calendar = $this->caldav->getCalendarById($ncId);
+		if (!is_array($calendar) || $this->isInTrash($calendar)) {
+			return ['nameCustomized' => false, 'colorCustomized' => false];
+		}
+		$ncName = (string)($calendar['{DAV:}displayname'] ?? '');
+		$ncColor = self::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null);
+		return [
+			'nameCustomized' => $ncName !== $desiredName,
+			'colorCustomized' => $desiredColor !== '' && $ncColor !== $desiredColor,
+		];
+	}
+
+	public static function normalizeColor(?string $color): string {
+		$color = strtoupper(trim((string)$color));
+		if (preg_match('/^#([0-9A-F]{6})([0-9A-F]{2})?$/', $color, $m) === 1) {
+			return '#' . $m[1];
+		}
+		if (preg_match('/^#([0-9A-F]{3})$/', $color, $m) === 1) {
+			$h = $m[1];
+			return '#' . $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
+		}
+		return $color;
 	}
 
 	/**
@@ -479,6 +593,7 @@ class SyncService {
 	private function calendarPayload(string $userId): array {
 		$payload = [];
 		foreach ($this->calendars->findByUser($userId) as $row) {
+			$flags = $this->appearanceFlags($row);
 			$payload[] = [
 				'id' => (int)$row->getId(),
 				'name' => (string)($row->getDisplayName() ?? ''),
@@ -487,6 +602,8 @@ class SyncService {
 				'lastSync' => (int)$row->getLastSync(),
 				'lastError' => (string)($row->getLastError() ?? ''),
 				'lastSummary' => (string)($row->getLastSummary() ?? ''),
+				'nameCustomized' => $flags['nameCustomized'],
+				'colorCustomized' => $flags['colorCustomized'],
 			];
 		}
 		return $payload;

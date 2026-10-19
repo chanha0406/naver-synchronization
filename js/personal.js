@@ -52,6 +52,9 @@ function init() {
 		buttons.forEach((button) => {
 			button.disabled = busy
 		})
+		root.querySelectorAll('button.match').forEach((button) => {
+			button.disabled = busy
+		})
 	}
 
 	function formatTime(stamp) {
@@ -119,8 +122,39 @@ function init() {
 				error.textContent = calendar.lastError
 				item.appendChild(error)
 			}
+			const actions = document.createElement('div')
+			actions.className = 'meta-actions'
+			if (calendar.nameCustomized) {
+				const nameBtn = document.createElement('button')
+				nameBtn.type = 'button'
+				nameBtn.className = 'match'
+				nameBtn.textContent = translate('Match Naver name')
+				nameBtn.addEventListener('click', (event) => {
+					event.preventDefault()
+					matchNaver(calendar.id, true, false)
+				})
+				actions.appendChild(nameBtn)
+			}
+			if (calendar.colorCustomized) {
+				const colorBtn = document.createElement('button')
+				colorBtn.type = 'button'
+				colorBtn.className = 'match'
+				colorBtn.textContent = translate('Match Naver color')
+				colorBtn.addEventListener('click', (event) => {
+					event.preventDefault()
+					matchNaver(calendar.id, false, true)
+				})
+				actions.appendChild(colorBtn)
+			}
+			if (actions.childNodes.length > 0) {
+				item.appendChild(actions)
+			}
 			calendarList.appendChild(item)
 		})
+	}
+
+	async function matchNaver(id, name, color) {
+		await call('calendars/' + id + '/match-naver', 'POST', { name, color })
 	}
 
 	function selection() {

@@ -125,32 +125,28 @@ function init() {
 			const actions = document.createElement('div')
 			actions.className = 'meta-actions'
 			if (calendar.nameCustomized) {
-				const nameBtn = document.createElement('button')
-				nameBtn.type = 'button'
-				nameBtn.className = 'match'
-				nameBtn.textContent = translate('Match Naver name')
-				nameBtn.addEventListener('click', (event) => {
-					event.preventDefault()
-					matchNaver(calendar.id, true, false)
-				})
-				actions.appendChild(nameBtn)
+				actions.appendChild(matchButton(translate('Match Naver name'), () => matchNaver(calendar.id, true, false)))
 			}
 			if (calendar.colorCustomized) {
-				const colorBtn = document.createElement('button')
-				colorBtn.type = 'button'
-				colorBtn.className = 'match'
-				colorBtn.textContent = translate('Match Naver color')
-				colorBtn.addEventListener('click', (event) => {
-					event.preventDefault()
-					matchNaver(calendar.id, false, true)
-				})
-				actions.appendChild(colorBtn)
+				actions.appendChild(matchButton(translate('Match Naver color'), () => matchNaver(calendar.id, false, true)))
 			}
 			if (actions.childNodes.length > 0) {
 				item.appendChild(actions)
 			}
 			calendarList.appendChild(item)
 		})
+	}
+
+	function matchButton(label, onClick) {
+		const button = document.createElement('button')
+		button.type = 'button'
+		button.className = 'match'
+		button.textContent = label
+		button.addEventListener('click', (event) => {
+			event.preventDefault()
+			onClick()
+		})
+		return button
 	}
 
 	async function matchNaver(id, name, color) {

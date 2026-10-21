@@ -75,7 +75,10 @@ class SyncService {
 			$row->setRemoteHref($calendar['href']);
 			$row->setDisplayName(mb_substr($calendar['name'], 0, 255));
 			$row->setColor($calendar['color']);
-			$row->setLastError(null);
+			// Keep sync errors (a held mass deletion) until the next sync.
+			if ($row->getLastError() === T::t('This calendar was not found in the Naver account.')) {
+				$row->setLastError(null);
+			}
 			if ($row->getId() === null) {
 				$this->calendars->insert($row);
 			} else {
@@ -130,12 +133,8 @@ class SyncService {
 		if ($row === null) {
 			throw new \InvalidArgumentException(T::t('Unknown calendar.'));
 		}
-		$ncId = (int)$row->getNcCalendarId();
-		if ($ncId <= 0) {
-			throw new \RuntimeException(T::t('This calendar is not linked to Nextcloud yet.'));
-		}
-		$calendar = $this->caldav->getCalendarById($ncId);
-		if (!is_array($calendar) || $this->isInTrash($calendar)) {
+		$calendar = $this->linkedCalendar($row);
+		if ($calendar === null) {
 			throw new \RuntimeException(T::t('This calendar is not linked to Nextcloud yet.'));
 		}
 		$this->syncAppearance($row, $calendar, $name, $color);
@@ -167,14 +166,14 @@ class SyncService {
 	public function syncUser(string $userId, bool $allowMassDelete = false): array {
 		T::forUser($userId);
 		try {
-		$path = 'naversynchronization/' . $userId;
-		$this->locking->acquireLock($path, ILockingProvider::LOCK_EXCLUSIVE);
-		try {
-			return $this->syncUserLocked($userId, $allowMassDelete);
-		} finally {
-			$this->locking->releaseLock($path, ILockingProvider::LOCK_EXCLUSIVE);
-		}
+			$path = 'naversynchronization/' . $userId;
+			$this->locking->acquireLock($path, ILockingProvider::LOCK_EXCLUSIVE);
+			try {
+				return $this->syncUserLocked($userId, $allowMassDelete);
 			} finally {
+				$this->locking->releaseLock($path, ILockingProvider::LOCK_EXCLUSIVE);
+			}
+		} finally {
 			T::forUser(null);
 		}
 	}
@@ -236,16 +235,11 @@ class SyncService {
 		foreach ($this->objects->findByCalendar((int)$mapping->getId()) as $row) {
 			$byHash[(string)$row->getHrefHash()] = $row;
 		}
-		$local = $this->localEtags($ncCalendarId);
+		$local = $this->localEtags($ncCalendarId, $byHash);
 
+		$counts = ['add' => 0, 'update' => 0, 'revert' => 0, 'restore' => 0, 'kept' => 0, 'failed' => 0];
 		$seen = [];
 		$touched = [];
-		$added = 0;
-		$updated = 0;
-		$reverted = 0;
-		$restored = 0;
-		$kept = 0;
-		$failed = 0;
 		foreach ($remote as $item) {
 			if ($item['href'] === '') {
 				continue;
@@ -253,89 +247,97 @@ class SyncService {
 			$hash = hash('sha256', $item['href']);
 			$seen[$hash] = true;
 			$previous = $byHash[$hash] ?? null;
-			$etag = $item['etag'];
-			if (strlen($etag) > 255) {
-				$etag = 'sha256:' . hash('sha256', $etag);
-			}
 			$localUri = $previous !== null && (string)$previous->getLocalUri() !== ''
 				? (string)$previous->getLocalUri()
 				: substr($hash, 0, 32) . '.ics';
 			$touched[$localUri] = true;
-			$data = $item['data'];
+			$counts[$this->importItem($mapping, $client, $ncCalendarId, $item, $hash, $localUri, $previous, $local)]++;
+		}
+
+		[$deleted, $held, $error] = $this->deleteMissing($userId, $ncCalendarId, $byHash, $seen, $local, $touched, $allowMassDelete);
+
+		$summary = T::t('Added %1$s, updated %2$s, reverted %3$s, restored %4$s, deleted %5$s, unchanged %6$s', [$counts['add'], $counts['update'], $counts['revert'], $counts['restore'], $deleted, $counts['kept']]);
+		if ($held > 0) {
+			$summary .= T::t(', deletion held %s', [$held]);
+		}
+		if ($counts['failed'] > 0) {
+			$summary .= T::t(', failed %s', [$counts['failed']]);
+		}
+		return ['summary' => $summary, 'error' => $error];
+	}
+
+	/**
+	 * Writes one Naver object to Nextcloud unless both sides are unchanged.
+	 *
+	 * @param array{href: string, etag: string, data: ?string} $item
+	 * @param array<string, string> $local uri => etag
+	 * @return string add, update, revert, restore, kept or failed
+	 */
+	private function importItem(SyncedCalendar $mapping, CalDavClient $client, int $ncCalendarId, array $item, string $hash, string $localUri, ?SyncedObject $previous, array $local): string {
+		$etag = $item['etag'];
+		$data = $item['data'];
+		try {
 			if ($etag === '') {
 				// Without an ETag the content hash is the version. Otherwise
 				// every sync would rewrite the event and change its local ETag.
-				try {
-					if (!is_string($data) || $data === '') {
-						$data = $client->download($item['href']);
-					}
-				} catch (\Throwable $e) {
-					$failed++;
-					$this->logger->warning(T::t('Skipped one Naver event: %s', [$e->getMessage()]), [
-						'app' => Application::APP_ID,
-					]);
-					continue;
-				}
-				$etag = 'sha256:' . hash('sha256', $data);
-			}
-			$storedLocal = $previous !== null ? (string)($previous->getLocalEtag() ?? '') : '';
-			$remoteSame = $previous !== null && $etag !== '' && (string)$previous->getRemoteEtag() === $etag;
-			$localEtag = $local[$localUri] ?? null;
-			if ($remoteSame && $localEtag !== null && $storedLocal !== '' && $localEtag === $storedLocal) {
-				$kept++;
-				continue;
-			}
-			if ($previous === null) {
-				$kind = 'add';
-			} elseif ($localEtag === null) {
-				$kind = 'restore';
-			} elseif ($remoteSame) {
-				$kind = 'revert';
-			} else {
-				$kind = 'update';
-			}
-
-			try {
 				if (!is_string($data) || $data === '') {
 					$data = $client->download($item['href']);
 				}
-				$ics = $this->normalizeIcs($data, $localUri);
-				$writtenEtag = $this->writeObject($ncCalendarId, $localUri, $ics);
-			} catch (\Throwable $e) {
-				$failed++;
-				$this->logger->warning(T::t('Skipped one Naver event: %s', [$e->getMessage()]), [
-					'app' => Application::APP_ID,
-				]);
-				continue;
+				$etag = 'sha256:' . hash('sha256', $data);
+			} elseif (strlen($etag) > 255) {
+				$etag = 'sha256:' . hash('sha256', $etag);
 			}
 
-			if ($previous === null) {
-				$stored = new SyncedObject();
-				$stored->setCalendarId((int)$mapping->getId());
-				$stored->setHrefHash($hash);
-				$stored->setRemoteHref($item['href']);
-				$stored->setRemoteEtag($etag);
-				$stored->setLocalUri($localUri);
-				$stored->setLocalEtag($writtenEtag);
-				$this->objects->insert($stored);
-			} else {
-				$previous->setRemoteHref($item['href']);
-				$previous->setRemoteEtag($etag);
-				$previous->setLocalUri($localUri);
-				$previous->setLocalEtag($writtenEtag);
-				$this->objects->update($previous);
+			$storedLocal = $previous !== null ? (string)($previous->getLocalEtag() ?? '') : '';
+			$remoteSame = $previous !== null && (string)$previous->getRemoteEtag() === $etag;
+			$localEtag = $local[$localUri] ?? null;
+			if ($remoteSame && $localEtag !== null && $storedLocal !== '' && $localEtag === $storedLocal) {
+				return 'kept';
 			}
-			if ($kind === 'add') {
-				$added++;
-			} elseif ($kind === 'restore') {
-				$restored++;
-			} elseif ($kind === 'revert') {
-				$reverted++;
-			} else {
-				$updated++;
+
+			if (!is_string($data) || $data === '') {
+				$data = $client->download($item['href']);
 			}
+			$ics = $this->normalizeIcs($data, $localUri);
+			$writtenEtag = $localEtag === null && !$this->hasObject($ncCalendarId, $localUri)
+				? (string)$this->caldav->createCalendarObject($ncCalendarId, $localUri, $ics)
+				: (string)$this->caldav->updateCalendarObject($ncCalendarId, $localUri, $ics);
+		} catch (\Throwable $e) {
+			$this->logger->warning(T::t('Skipped one Naver event: %s', [$e->getMessage()]), [
+				'app' => Application::APP_ID,
+			]);
+			return 'failed';
 		}
 
+		$stored = $previous ?? new SyncedObject();
+		$stored->setCalendarId((int)$mapping->getId());
+		$stored->setHrefHash($hash);
+		$stored->setRemoteHref($item['href']);
+		$stored->setRemoteEtag($etag);
+		$stored->setLocalUri($localUri);
+		$stored->setLocalEtag($writtenEtag);
+		if ($previous === null) {
+			$this->objects->insert($stored);
+			return 'add';
+		}
+		$this->objects->update($stored);
+		if ($localEtag === null) {
+			return 'restore';
+		}
+		return $remoteSame ? 'revert' : 'update';
+	}
+
+	/**
+	 * Removes objects that are gone from Naver and Nextcloud-only events,
+	 * unless that would delete too many at once.
+	 *
+	 * @param array<string, SyncedObject> $byHash
+	 * @param array<string, true> $seen
+	 * @param array<string, string> $local
+	 * @param array<string, true> $touched
+	 * @return array{int, int, ?string} deleted, held, error
+	 */
+	private function deleteMissing(string $userId, int $ncCalendarId, array $byHash, array $seen, array $local, array $touched, bool $allowMassDelete): array {
 		$pending = [];
 		foreach ($byHash as $hash => $row) {
 			if (isset($seen[$hash])) {
@@ -351,46 +353,37 @@ class SyncService {
 			$pending[$uri] = null;
 		}
 
-		$deleted = 0;
-		$held = 0;
-		$error = null;
-		$deletionCount = count($pending);
-		if ($deletionCount > 0 && !$allowMassDelete && $this->tooManyDeletions($deletionCount, max(count($byHash), count($local)))) {
-			$held = $deletionCount;
-			$error = T::t('Refused to delete %1$s items at once. Check them, then continue with occ naversynchronization:sync --allow-mass-delete %2$s.', [$deletionCount, $userId]);
-		} else {
-			foreach ($pending as $uri => $row) {
-				if (!str_starts_with((string)$uri, 'row:') && isset($local[$uri])) {
-					$this->caldav->deleteCalendarObject($ncCalendarId, (string)$uri, CalDavBackend::CALENDAR_TYPE_CALENDAR, true);
-				}
-				if ($row !== null) {
-					$this->objects->delete($row);
-				}
-				$deleted++;
+		$count = count($pending);
+		if ($count > 0 && !$allowMassDelete && $this->tooManyDeletions($count, max(count($byHash), count($local)))) {
+			return [0, $count, T::t('Refused to delete %1$s items at once. Check them, then continue with occ naversynchronization:sync --allow-mass-delete %2$s.', [$count, $userId])];
+		}
+		foreach ($pending as $uri => $row) {
+			if (!str_starts_with((string)$uri, 'row:') && isset($local[$uri])) {
+				$this->caldav->deleteCalendarObject($ncCalendarId, (string)$uri, CalDavBackend::CALENDAR_TYPE_CALENDAR, true);
+			}
+			if ($row !== null) {
+				$this->objects->delete($row);
 			}
 		}
-
-		$summary = T::t('Added %1$s, updated %2$s, reverted %3$s, restored %4$s, deleted %5$s, unchanged %6$s', [$added, $updated, $reverted, $restored, $deleted, $kept]);
-		if ($held > 0) {
-			$summary .= T::t(', deletion held %s', [$held]);
-		}
-		if ($failed > 0) {
-			$summary .= T::t(', failed %s', [$failed]);
-		}
-		return ['summary' => $summary, 'error' => $error];
+		return [$count, 0, null];
 	}
 
 	/**
+	 * Events in the calendar plus any object this app wrote, whatever its
+	 * component. Tasks a user added to the calendar are left alone.
+	 *
+	 * @param array<string, SyncedObject> $byHash
 	 * @return array<string, string> uri => etag
 	 */
-	private function localEtags(int $ncCalendarId): array {
+	private function localEtags(int $ncCalendarId, array $byHash): array {
+		$ours = [];
+		foreach ($byHash as $row) {
+			$ours[(string)$row->getLocalUri()] = true;
+		}
 		$etags = [];
 		foreach ($this->caldav->getCalendarObjects($ncCalendarId) as $object) {
-			if (($object['component'] ?? '') !== 'vevent') {
-				continue;
-			}
 			$uri = (string)($object['uri'] ?? '');
-			if ($uri === '') {
+			if ($uri === '' || (($object['component'] ?? '') !== 'vevent' && !isset($ours[$uri]))) {
 				continue;
 			}
 			$etags[$uri] = (string)($object['etag'] ?? '');
@@ -398,12 +391,12 @@ class SyncService {
 		return $etags;
 	}
 
-	private function writeObject(int $ncCalendarId, string $localUri, string $ics): string {
-		$existing = $this->caldav->getCalendarObject($ncCalendarId, $localUri);
-		if ($existing === null) {
-			return (string)$this->caldav->createCalendarObject($ncCalendarId, $localUri, $ics);
-		}
-		return (string)$this->caldav->updateCalendarObject($ncCalendarId, $localUri, $ics);
+	/**
+	 * A local object can exist outside $local (a task under our URI), so check
+	 * before creating.
+	 */
+	private function hasObject(int $ncCalendarId, string $uri): bool {
+		return $this->caldav->getCalendarObject($ncCalendarId, $uri) !== null;
 	}
 
 	private function tooManyDeletions(int $deletions, int $total): bool {
@@ -411,20 +404,14 @@ class SyncService {
 	}
 
 	private function ensureCalendar(string $userId, SyncedCalendar $mapping): int {
-		$principal = 'principals/users/' . $userId;
-		$desiredName = $this->localName((string)$mapping->getDisplayName());
-		$desiredColor = self::normalizeColor($mapping->getColor());
-		$existingId = (int)$mapping->getNcCalendarId();
-		if ($existingId > 0) {
-			$calendar = $this->caldav->getCalendarById($existingId);
-			if (is_array($calendar)
-				&& !$this->isInTrash($calendar)
-				&& ($calendar['principaluri'] ?? '') === $principal) {
-				$this->syncAppearance($mapping, $calendar, false, false);
-				return $existingId;
-			}
+		$calendar = $this->linkedCalendar($mapping);
+		if ($calendar !== null) {
+			$this->syncAppearance($mapping, $calendar, false, false);
+			return (int)$calendar['id'];
 		}
 
+		$desiredName = $this->localName((string)$mapping->getDisplayName());
+		$desiredColor = Appearance::normalizeColor($mapping->getColor());
 		$params = [
 			'{DAV:}displayname' => $desiredName,
 			'components' => 'VEVENT',
@@ -432,6 +419,7 @@ class SyncService {
 		if ($desiredColor !== '') {
 			$params['{http://apple.com/ns/ical/}calendar-color'] = $desiredColor;
 		}
+		$principal = 'principals/users/' . $userId;
 		$uri = 'naver-import-' . substr((string)$mapping->getHrefHash(), 0, 32);
 		try {
 			$created = (int)$this->caldav->createCalendar($principal, $uri, $params);
@@ -446,16 +434,31 @@ class SyncService {
 		return $created;
 	}
 
-	private function syncAppearanceFor(SyncedCalendar $mapping): void {
+	/**
+	 * The linked Nextcloud calendar when it exists, belongs to the user and is
+	 * not in the trash.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private function linkedCalendar(SyncedCalendar $mapping): ?array {
 		$ncId = (int)$mapping->getNcCalendarId();
 		if ($ncId <= 0) {
-			return;
+			return null;
 		}
 		$calendar = $this->caldav->getCalendarById($ncId);
-		if (!is_array($calendar) || $this->isInTrash($calendar)) {
-			return;
+		if (!is_array($calendar)
+			|| ($calendar['{http://owncloud.org/ns}deleted-at'] ?? null) !== null
+			|| ($calendar['principaluri'] ?? '') !== 'principals/users/' . $mapping->getUserId()) {
+			return null;
 		}
-		$this->syncAppearance($mapping, $calendar, false, false);
+		return $calendar;
+	}
+
+	private function syncAppearanceFor(SyncedCalendar $mapping): void {
+		$calendar = $this->linkedCalendar($mapping);
+		if ($calendar !== null) {
+			$this->syncAppearance($mapping, $calendar, false, false);
+		}
 	}
 
 	/**
@@ -465,53 +468,32 @@ class SyncService {
 	 * @param array<string, mixed> $calendar
 	 */
 	private function syncAppearance(SyncedCalendar $mapping, array $calendar, bool $forceName, bool $forceColor): void {
-		$ncId = (int)$calendar['id'];
-		$ncName = (string)($calendar['{DAV:}displayname'] ?? '');
-		$ncColor = self::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null);
-		$seeded = false;
-		if ($mapping->getAppliedName() === null) {
-			$mapping->setAppliedName($ncName !== '' ? $ncName : $this->localName((string)$mapping->getDisplayName()));
-			$seeded = true;
-		}
-		if ($mapping->getAppliedColor() === null) {
-			$seedColor = $ncColor !== '' ? $ncColor : self::normalizeColor($mapping->getColor());
-			$mapping->setAppliedColor($seedColor !== '' ? $seedColor : null);
-			$seeded = true;
-		}
-		if ($seeded) {
-			$this->calendars->update($mapping);
-		}
-
-		$desiredName = $this->localName((string)$mapping->getDisplayName());
-		$desiredColor = self::normalizeColor($mapping->getColor());
+		$applied = $mapping->getAppliedColor();
+		$d = Appearance::decide(
+			(string)($calendar['{DAV:}displayname'] ?? ''),
+			Appearance::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null),
+			$mapping->getAppliedName(),
+			$applied !== null ? Appearance::normalizeColor($applied) : null,
+			$this->localName((string)$mapping->getDisplayName()),
+			Appearance::normalizeColor($mapping->getColor()),
+			$forceName,
+			$forceColor,
+		);
 		$patch = [];
-		$markers = false;
-		$appliedName = (string)$mapping->getAppliedName();
-		$appliedColor = self::normalizeColor($mapping->getAppliedColor());
-
-		if ($forceName || ($ncName === $appliedName && $ncName !== $desiredName)) {
-			$patch['{DAV:}displayname'] = $desiredName;
-			$mapping->setAppliedName($desiredName);
-			$markers = true;
-		} elseif ($ncName === $desiredName && $appliedName !== $desiredName) {
-			$mapping->setAppliedName($desiredName);
-			$markers = true;
+		if ($d['name'] !== null) {
+			$patch['{DAV:}displayname'] = $d['name'];
 		}
-		if ($desiredColor !== '' && ($forceColor || ($ncColor === $appliedColor && $ncColor !== $desiredColor))) {
-			$patch['{http://apple.com/ns/ical/}calendar-color'] = $desiredColor;
-			$mapping->setAppliedColor($desiredColor);
-			$markers = true;
-		} elseif ($desiredColor !== '' && $ncColor === $desiredColor && $appliedColor !== $desiredColor) {
-			$mapping->setAppliedColor($desiredColor);
-			$markers = true;
+		if ($d['color'] !== null) {
+			$patch['{http://apple.com/ns/ical/}calendar-color'] = $d['color'];
 		}
-
 		if ($patch !== []) {
 			$propPatch = new PropPatch($patch);
-			$this->caldav->updateCalendar($ncId, $propPatch);
+			$this->caldav->updateCalendar((int)$calendar['id'], $propPatch);
 			$propPatch->commit();
-			$this->calendars->update($mapping);
-		} elseif ($markers) {
+		}
+		if ($d['changed'] || $patch !== []) {
+			$mapping->setAppliedName($d['appliedName']);
+			$mapping->setAppliedColor($d['appliedColor'] !== '' ? $d['appliedColor'] : null);
 			$this->calendars->update($mapping);
 		}
 	}
@@ -520,41 +502,16 @@ class SyncService {
 	 * @return array{nameCustomized: bool, colorCustomized: bool}
 	 */
 	private function appearanceFlags(SyncedCalendar $mapping): array {
-		$desiredName = $this->localName((string)$mapping->getDisplayName());
-		$desiredColor = self::normalizeColor($mapping->getColor());
-		$ncId = (int)$mapping->getNcCalendarId();
-		if ($ncId <= 0) {
+		$calendar = $this->linkedCalendar($mapping);
+		if ($calendar === null) {
 			return ['nameCustomized' => false, 'colorCustomized' => false];
 		}
-		$calendar = $this->caldav->getCalendarById($ncId);
-		if (!is_array($calendar) || $this->isInTrash($calendar)) {
-			return ['nameCustomized' => false, 'colorCustomized' => false];
-		}
-		$ncName = (string)($calendar['{DAV:}displayname'] ?? '');
-		$ncColor = self::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null);
-		return [
-			'nameCustomized' => $ncName !== $desiredName,
-			'colorCustomized' => $desiredColor !== '' && $ncColor !== $desiredColor,
-		];
-	}
-
-	public static function normalizeColor(?string $color): string {
-		$color = strtoupper(trim((string)$color));
-		if (preg_match('/^#([0-9A-F]{6})([0-9A-F]{2})?$/', $color, $m) === 1) {
-			return '#' . $m[1];
-		}
-		if (preg_match('/^#([0-9A-F]{3})$/', $color, $m) === 1) {
-			$h = $m[1];
-			return '#' . $h[0] . $h[0] . $h[1] . $h[1] . $h[2] . $h[2];
-		}
-		return $color;
-	}
-
-	/**
-	 * @param array<string, mixed> $calendar
-	 */
-	private function isInTrash(array $calendar): bool {
-		return ($calendar['{http://owncloud.org/ns}deleted-at'] ?? null) !== null;
+		return Appearance::customized(
+			(string)($calendar['{DAV:}displayname'] ?? ''),
+			Appearance::normalizeColor($calendar['{http://apple.com/ns/ical/}calendar-color'] ?? null),
+			$this->localName((string)$mapping->getDisplayName()),
+			Appearance::normalizeColor($mapping->getColor()),
+		);
 	}
 
 	private function localName(string $name): string {

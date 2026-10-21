@@ -30,16 +30,6 @@ class SyncedCalendarMapper extends QBMapper {
 		return $rows;
 	}
 
-	public function findByUserAndHash(string $userId, string $hrefHash): ?SyncedCalendar {
-		$qb = $this->db->getQueryBuilder();
-		$qb->select('*')
-			->from($this->getTableName())
-			->where($qb->expr()->eq('user_id', $qb->createNamedParameter($userId)))
-			->andWhere($qb->expr()->eq('href_hash', $qb->createNamedParameter($hrefHash)));
-		$rows = $this->findEntities($qb);
-		return $rows[0] ?? null;
-	}
-
 	public function findForUser(string $userId, int $id): ?SyncedCalendar {
 		$qb = $this->db->getQueryBuilder();
 		$qb->select('*')

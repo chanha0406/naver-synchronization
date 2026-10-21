@@ -115,18 +115,15 @@ class MultiStatusParser {
 	}
 
 	/**
+	 * Direct children with this local name, whatever their namespace prefix.
+	 *
 	 * @return list<DOMElement>
 	 */
 	private function elementsByLocalName(DOMElement $element, string $localName): array {
 		$found = [];
-		foreach ($element->getElementsByTagName('*') as $candidate) {
-			if (!$candidate instanceof DOMElement || $candidate->localName !== $localName) {
-				continue;
-			}
-			// Direct response/propstat children only, except nested href and type nodes
-			// are selected by their own parent. Walk one level for structural tags.
-			if ($candidate->parentNode === $element) {
-				$found[] = $candidate;
+		foreach ($element->childNodes as $child) {
+			if ($child instanceof DOMElement && $child->localName === $localName) {
+				$found[] = $child;
 			}
 		}
 		return $found;

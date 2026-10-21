@@ -249,17 +249,15 @@ XML;
 		return $normalize($a) === $normalize($b);
 	}
 
+	/**
+	 * #rrggbb, or null when Naver sends no usable color.
+	 */
 	private function normalizeColor(?string $color): ?string {
-		if ($color === null) {
-			return null;
-		}
-		if (preg_match('/^(#[0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?$/', trim($color), $match) !== 1) {
-			return null;
-		}
-		return strtoupper($match[1]);
+		$color = Appearance::normalizeColor($color);
+		return preg_match('/^#[0-9a-f]{6}$/', $color) === 1 ? $color : null;
 	}
 
-	public function normalizeEtag(string $etag): string {
+	private function normalizeEtag(string $etag): string {
 		$etag = trim($etag);
 		if (str_starts_with($etag, 'W/')) {
 			$etag = trim(substr($etag, 2));

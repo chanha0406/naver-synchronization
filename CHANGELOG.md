@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
+### Fixed
+
+- The first name and color check no longer overwrites a calendar renamed or recolored in Nextcloud before this app tracked the values.
+- Objects this app imported are recognized whatever their component, so a non-event object from Naver is no longer restored on every sync.
+- Refreshing the calendar list keeps a held mass deletion error until the next sync.
+
+### Changed
+
+- syncCalendar is split into importItem and deleteMissing; the name/color logic is the Appearance class shared with google-twoway-sync.
+- Unit tests in tests/Unit run without a Nextcloud instance (tests/run-unit.sh).
+
 ## [1.0.4] - 2026-10-21
 
 ### Fixed

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-21
+
+### Fixed
+
+- A broken or non-multistatus CalDAV response now fails the sync. Before, it read as an empty calendar and removed every imported event.
+
 ## [1.0.2] - 2026-10-20
 
 ### Changed

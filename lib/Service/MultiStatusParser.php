@@ -6,6 +6,7 @@ namespace OCA\NaverSynchronization\Service;
 
 use DOMDocument;
 use DOMElement;
+use OCA\NaverSynchronization\L10n\T;
 
 /**
  * PROPFIND / REPORT multistatus parser.
@@ -32,8 +33,11 @@ class MultiStatusParser {
 		$loaded = $document->loadXML($xml, LIBXML_NONET);
 		libxml_clear_errors();
 		libxml_use_internal_errors($previous);
-		if ($loaded === false || $document->documentElement === null) {
-			return [];
+		// An empty list would read as an empty calendar and delete every
+		// imported event, so a broken response has to fail the sync.
+		if ($loaded === false || $document->documentElement === null
+			|| $document->documentElement->localName !== 'multistatus') {
+			throw new \RuntimeException(T::t('Naver CalDAV returned a response that is not a valid multistatus.'));
 		}
 
 		$parsed = [];

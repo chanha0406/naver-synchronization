@@ -30,6 +30,7 @@ OC.L10N.register(
 	"Could not connect to Naver Calendar.": "네이버 캘린더에 연결하지 못했습니다.",
 	"Refused to delete %1$s items at once. Check them, then continue with occ naversynchronization:sync --allow-mass-delete %2$s.": "한 번에 지울 항목이 %1$s건이라 삭제를 보류했습니다. 확인 후 occ naversynchronization:sync --allow-mass-delete %2$s 로 진행하세요.",
 	"Naver CalDAV returned HTTP %s.": "네이버 CalDAV가 HTTP %s 을 반환했습니다.",
+	"Naver CalDAV returned a response that is not a valid multistatus.": "네이버 CalDAV 응답이 올바른 multistatus가 아닙니다.",
 	"Naver calendar sync failed: %s": "네이버 캘린더 동기화 실패: %s",
 	"Could not import the Naver calendar: %s": "네이버 캘린더를 가져오지 못했습니다: %s",
 	"Skipped one Naver event: %s": "네이버 일정 하나를 건너뛰었습니다: %s",

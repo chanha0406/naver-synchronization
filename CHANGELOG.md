@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-21
+
+### Fixed
+
+- Events without an ETag use a hash of their data as the version on every listing path, so unchanged events are no longer rewritten on each sync.
+
 ## [1.0.3] - 2026-10-21
 
 ### Fixed

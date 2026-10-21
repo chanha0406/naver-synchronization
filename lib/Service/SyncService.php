@@ -261,6 +261,23 @@ class SyncService {
 				? (string)$previous->getLocalUri()
 				: substr($hash, 0, 32) . '.ics';
 			$touched[$localUri] = true;
+			$data = $item['data'];
+			if ($etag === '') {
+				// Without an ETag the content hash is the version. Otherwise
+				// every sync would rewrite the event and change its local ETag.
+				try {
+					if (!is_string($data) || $data === '') {
+						$data = $client->download($item['href']);
+					}
+				} catch (\Throwable $e) {
+					$failed++;
+					$this->logger->warning(T::t('Skipped one Naver event: %s', [$e->getMessage()]), [
+						'app' => Application::APP_ID,
+					]);
+					continue;
+				}
+				$etag = 'sha256:' . hash('sha256', $data);
+			}
 			$storedLocal = $previous !== null ? (string)($previous->getLocalEtag() ?? '') : '';
 			$remoteSame = $previous !== null && $etag !== '' && (string)$previous->getRemoteEtag() === $etag;
 			$localEtag = $local[$localUri] ?? null;
@@ -279,12 +296,8 @@ class SyncService {
 			}
 
 			try {
-				$data = $item['data'];
 				if (!is_string($data) || $data === '') {
 					$data = $client->download($item['href']);
-					if ($etag === '') {
-						$etag = 'sha256:' . hash('sha256', $data);
-					}
 				}
 				$ics = $this->normalizeIcs($data, $localUri);
 				$writtenEtag = $this->writeObject($ncCalendarId, $localUri, $ics);

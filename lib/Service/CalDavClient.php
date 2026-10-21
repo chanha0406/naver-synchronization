@@ -141,15 +141,10 @@ XML;
 			if ($this->sameResource($href, $calendarHref)) {
 				continue;
 			}
-			$data = $response['calendarData'];
-			$etag = $this->normalizeEtag($response['etag'] ?? '');
-			if ($etag === '' && is_string($data) && $data !== '') {
-				$etag = 'sha256:' . hash('sha256', $data);
-			}
 			$objects[] = [
 				'href' => $href,
-				'etag' => $etag,
-				'data' => $data,
+				'etag' => $this->normalizeEtag($response['etag'] ?? ''),
+				'data' => $response['calendarData'],
 			];
 		}
 		return $objects;

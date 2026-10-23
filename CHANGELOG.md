@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-23
+
+### Fixed
+
+- A calendar in the trash stays unlinked. Nextcloud reports that with `{http://nextcloud.com/ns}deleted-at`.
+- An empty calendar color is stored as an empty applied value, so the one-second sync no longer rewrites that row every run.
+
 ## [1.1.0] - 2026-10-21
 
 ### Fixed

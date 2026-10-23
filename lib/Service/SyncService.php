@@ -429,7 +429,7 @@ class SyncService {
 		$this->objects->deleteByCalendar((int)$mapping->getId());
 		$mapping->setNcCalendarId($created);
 		$mapping->setAppliedName($desiredName);
-		$mapping->setAppliedColor($desiredColor !== '' ? $desiredColor : null);
+		$mapping->setAppliedColor($desiredColor);
 		$this->calendars->update($mapping);
 		return $created;
 	}
@@ -447,7 +447,7 @@ class SyncService {
 		}
 		$calendar = $this->caldav->getCalendarById($ncId);
 		if (!is_array($calendar)
-			|| ($calendar['{http://owncloud.org/ns}deleted-at'] ?? null) !== null
+			|| CalendarTrash::isInTrash($calendar)
 			|| ($calendar['principaluri'] ?? '') !== 'principals/users/' . $mapping->getUserId()) {
 			return null;
 		}
@@ -493,7 +493,7 @@ class SyncService {
 		}
 		if ($d['changed'] || $patch !== []) {
 			$mapping->setAppliedName($d['appliedName']);
-			$mapping->setAppliedColor($d['appliedColor'] !== '' ? $d['appliedColor'] : null);
+			$mapping->setAppliedColor($d['appliedColor']);
 			$this->calendars->update($mapping);
 		}
 	}
